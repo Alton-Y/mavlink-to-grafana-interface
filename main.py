@@ -6,6 +6,7 @@ import math
 
 
 master = mavutil.mavlink_connection('udp:192.168.0.98:14561')
+#master = mavutil.mavlink_connection('udp:192.168.0.103:14561')
 master.wait_heartbeat()
 time.sleep(2)
 
@@ -26,6 +27,7 @@ class MavlinkData:
                              'RC_CHANNELS', 'SERVO_OUTPUT_RAW', 'VFR_HUD', 'WIND', 'POWER_STATUS',
                              'NAV_CONTROLLER_OUTPUT', 'HEARTBEAT', 'GLOBAL_POSITION_INT', 'GPS_RAW_INT', 'GPS2_RAW',
                              'BATTERY_STATUS', 'SYS_STATUS', 'SYSTEM_TIME', 'RAW_IMU', 'PARAM_VALUE']
+
 
         # self.type_special = ['NAMED_VALUE_FLOAT']
 
@@ -84,6 +86,11 @@ class MavlinkData:
             if self.data._type is 'PARAM_VALUE':
                 dict_body["tags"] = {"param_id": dict_body["fields"]["param_id"]}
 
+            if self.data._type is 'SYS_STATUS':
+                dict_body["fields"]["load_voltage"] = dict_body["fields"]["voltage_battery"]/1000
+                dict_body["fields"]["load_current"] = dict_body["fields"]["current_battery"]/100
+                dict_body["fields"]["load_power"] = dict_body["fields"]["load_voltage"]*dict_body["fields"]["load_current"]
+
             if self.data._type is 'BATTERY_STATUS':
                 if self.data.id == 2:
                     dict_body["fields"] = self._process_battery_status()
@@ -106,20 +113,3 @@ while True:
         #print(influxdb_point)
 
 master.close()
-
-# mlog.rewind()
-# while (True):
-#     # Get data from mavlink
-#     mavlink_data = MavlinkData(mlog.recv_msg())
-#     #mavlink_data.to_influx_db()
-#     influxdb_point = mavlink_data.to_influx_db()
-
-#     if influxdb_point is not None:
-#         influxdb_point[0]["time"] = datetime.utcfromtimestamp(mlog.timestamp).isoformat()
-#         client.write_points(influxdb_point)
-
-#while (True):
-#     # Get data from mavlink
-#    mavlink_data = master.recv_match(type='PARAM_VALUE')
-#    if mavlink_data is not None:
-#        print(mavlink_data)
