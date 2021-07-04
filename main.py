@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import math
+import struct
 
 master = mavutil.mavlink_connection('/dev/ttyACM1')
-#master = mavutil.mavlink_connection('/dev/tty.usbmodem1101')
+# master = mavutil.mavlink_connection('/dev/tty.usbmodem1101')
+# master = mavutil.mavlink_connection('udp:192.168.0.98:14561')
 master.wait_heartbeat()
 time.sleep(2)
 
@@ -40,35 +42,21 @@ class MavlinkData:
 
     def _process_battery_status(self):
         data_dict = {}
-        data_dict["voltage_1"] = self.data.voltages[0] / 1000
-        data_dict["voltage_2"] = self.data.voltages[1] / 1000
-        data_dict["voltage_3"] = self.data.voltages[2] / 1000
-        data_dict["voltage_4"] = self.data.voltages[3] / 1000
-        data_dict["voltage_5"] = self.data.voltages[4] / 1000
-        data_dict["voltage_6"] = self.data.voltages[5] / 1000
+
+        data_dict["battery_1_voltage"] = (self.data.voltages[0] >> 8 & 0x00FF ) * 0.01 + 2.2
+        data_dict["battery_2_voltage"] = (self.data.voltages[1] >> 8 & 0x00FF ) * 0.01 + 2.2
+        data_dict["battery_3_voltage"] = (self.data.voltages[2] >> 8 & 0x00FF ) * 0.01 + 2.2
+        data_dict["battery_4_voltage"] = (self.data.voltages[0] & 0x00FF ) * 0.01 + 2.2
+        data_dict["battery_5_voltage"] = (self.data.voltages[1] & 0x00FF ) * 0.01 + 2.2
+        data_dict["battery_6_voltage"] = (self.data.voltages[2] & 0x00FF ) * 0.01 + 2.2
 
         # MPPT
-        data_dict["mppt_temperature"] = (int(self.data.temperature) / 10) + 2731  # degC
-        data_dict["charge_current"] = math.floor(
-            (65534 - int(self.data.current_consumed)) / 100) / 10  # Amp (VE_current_A)
-        data_dict["charge_voltage"] = (65534 - int(self.data.current_consumed)) - data_dict[
-            "charge_current"] * 1000  # Volt (VE_voltage_V)
-        data_dict["charge_power"] = data_dict["charge_current"] * data_dict["charge_voltage"]
+        #data_dict["mppt_temperature"] = (int(self.data.temperature) / 10) + 2731  # degC
+        data_dict["mppt_charge_voltage"] = (self.data.voltages[3] & 0x0FFF) * 0.01
+        data_dict["mppt_charge_current"] = (self.data.voltages[4] & 0x00FF) * 0.1
 
-        # Solar Array
-        data_dict["solar_voltage"] = -math.floor(int(self.data.current_battery) / 100 * 3)  # Volt          (VE_vpv_V)
-        data_dict["solar_power"] = -(
-                    int(self.data.current_battery) - (int(self.data.current_battery / 100) * 100)) * 4  # W (VE_ppv_W)
-        if data_dict['solar_voltage'] > 0:
-            data_dict["solar_current"] = data_dict["solar_power"] / data_dict["solar_voltage"]
-        else:
-            data_dict["solar_current"] = float(0)
-
-        # Battery
-        data_dict["battery_voltage"] = sum(self.data.voltages[0:6]) / 1000
-        data_dict["battery_current"] = (int(self.data.current_battery) / 100) - data_dict["charge_current"]
-        data_dict["battery_power"] = data_dict["battery_voltage"] * data_dict["battery_current"]
-        # Load
+        data_dict["mppt_pv_voltage"] = (self.data.voltages[5] & 0x0FFF) * 0.01
+        data_dict["mppt_pv_power"] = self.data.current_battery * -0.1
 
         return data_dict
 
@@ -83,16 +71,16 @@ class MavlinkData:
             dict_body["fields"] = self.data.to_dict()
 
 
-            if self.data._type is 'PARAM_VALUE':
+            if self.data._type == 'PARAM_VALUE':
                 dict_body["tags"] = {"param_id": dict_body["fields"]["param_id"]}
 
-            if self.data._type is 'SYS_STATUS':
+            if self.data._type == 'SYS_STATUS':
                 dict_body["fields"]["load_voltage"] = dict_body["fields"]["voltage_battery"]/1000
                 dict_body["fields"]["load_current"] = dict_body["fields"]["current_battery"]/100
                 dict_body["fields"]["load_power"] = dict_body["fields"]["load_voltage"]*dict_body["fields"]["load_current"]
 
-            if self.data._type is 'BATTERY_STATUS':
-                if self.data.id == 2:
+            if self.data._type == 'BATTERY_STATUS':
+                if self.data.id == 1:
                     dict_body["fields"] = self._process_battery_status()
                     dict_body["measurement"] = "CREATEV_ELEC"
                     # print((self.data.current_battery))
