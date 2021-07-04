@@ -1,20 +1,19 @@
 from pymavlink import mavutil
 import time
 from datetime import datetime, timezone
-from influxdb import InfluxDBClient
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 import math
 
-
-master = mavutil.mavlink_connection('udp:192.168.0.98:14561')
-#master = mavutil.mavlink_connection('udp:192.168.0.103:14561')
+master = mavutil.mavlink_connection('/dev/ttyACM1')
+#master = mavutil.mavlink_connection('/dev/tty.usbmodem1101')
 master.wait_heartbeat()
 time.sleep(2)
 
-client = InfluxDBClient(host='192.168.0.99', port=8086)
-#client.drop_database('CREATEV')
-#client.create_database('CREATEV')
-print(client.get_list_database())
-client.switch_database('CREATEV')
+bucket = "createv"
+org = "my-org"
+client = InfluxDBClient(url="http://localhost:8086", token="my-token", org=org)
+write_api = client.write_api(write_options=SYNCHRONOUS)
 
 
 class MavlinkData:
@@ -83,6 +82,7 @@ class MavlinkData:
             dict_body["time"] = datetime.now(timezone.utc).isoformat()
             dict_body["fields"] = self.data.to_dict()
 
+
             if self.data._type is 'PARAM_VALUE':
                 dict_body["tags"] = {"param_id": dict_body["fields"]["param_id"]}
 
@@ -108,8 +108,10 @@ while True:
     # Get data from mavlink
     mavlink_data = MavlinkData(master.recv_msg())
     influxdb_point = mavlink_data.to_influx_db()
+    
     if influxdb_point is not None:
-        client.write_points(influxdb_point)
-        #print(influxdb_point)
-
+        point = Point.from_dict(influxdb_point[0])
+        write_api.write(bucket, org, point)
+        # print("suscess...")
+    
 master.close()
